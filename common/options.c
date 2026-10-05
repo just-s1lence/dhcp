@@ -3693,12 +3693,27 @@ fqdn6_universe_decode(struct option_state *options,
 				FQDN_NO_CLIENT_UPDATE, 0))
 		goto error;
 
-	/* Convert the domain name to textual representation for config. */
-	len = MRns_name_ntop(buffer + 1, (char *)bp->data + 3, bp_size - 3);
-	if (len == -1) {
-		log_error("Unable to convert dhcp6.fqdn domain name to "
-			  "printable form.");
-		goto error;
+	/* The domain name, if present, must be fully contained and
+	 * terminated within the option.  MRns_name_ntop() bounds its
+	 * output but not its input, so an unterminated (or absent)
+	 * name would cause it to read past the end of the option. */
+	len = 0;
+	if (length > 1) {
+		if (MRns_name_len(buffer + length, buffer + 1) < 0) {
+			log_error("dhcp6.fqdn: domain name not contained "
+				  "within option.");
+			goto error;
+		}
+
+		/* Convert the domain name to textual representation
+		 * for config. */
+		len = MRns_name_ntop(buffer + 1, (char *)bp->data + 3,
+				     bp_size - 3);
+		if (len == -1) {
+			log_error("Unable to convert dhcp6.fqdn domain name "
+				  "to printable form.");
+			goto error;
+		}
 	}
 
 	/* Save the domain name. */

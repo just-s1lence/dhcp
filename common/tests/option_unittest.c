@@ -266,6 +266,79 @@ ATF_TC_BODY(add_option_ref_cnt, tc)
     }
 }
 
+ATF_TC(fqdn6_decode_bounds);
+
+ATF_TC_HEAD(fqdn6_decode_bounds, tc)
+{
+    atf_tc_set_md_var(tc, "descr",
+        "Verify fqdn6_universe_decode() rejects DHCPv6 Client FQDN "
+        "options whose domain name is not terminated within the "
+        "option, and accepts well-formed ones.");
+}
+
+/* The v6 FQDN decoder converts the DNS-encoded name with
+ * MRns_name_ntop(), which bounds its output but not its input.  An
+ * option whose name lacks a terminating root-label zero (or that has
+ * no name bytes at all) must be rejected rather than read past the
+ * end of the option buffer.
+ */
+ATF_TC_BODY(fqdn6_decode_bounds, tc)
+{
+    struct option_state *options = NULL;
+
+    /* flags=0, one 30-octet label, no terminating zero. */
+    unsigned char unterminated[32];
+    /* flags=0, "host.example", properly terminated. */
+    unsigned char terminated[15] = {
+        0x00,
+        0x04, 'h', 'o', 's', 't',
+        0x07, 'e', 'x', 'a', 'm', 'p', 'l', 'e',
+        0x00
+    };
+    /* flags byte only (empty name, legal per RFC 4704 when N=1). */
+    unsigned char empty[1] = { 0x01 };
+
+    memset(unterminated, 0, sizeof(unterminated));
+    unterminated[1] = 30;
+    memset(unterminated + 2, 'a', 30);
+
+    initialize_common_option_spaces();
+
+    if (!option_state_allocate(&options, MDL)) {
+        atf_tc_fail("can't allocate option state");
+    }
+
+    /* Unterminated name: must be rejected (and not read out of
+     * bounds, which sanitizers will flag). */
+    if (fqdn6_universe_decode(options, unterminated,
+                              sizeof(unterminated), &fqdn_universe) != 0) {
+        atf_tc_fail("unterminated dhcp6.fqdn name was accepted");
+    }
+    option_state_dereference(&options, MDL);
+
+    if (!option_state_allocate(&options, MDL)) {
+        atf_tc_fail("can't allocate option state");
+    }
+
+    /* Properly terminated name: must be accepted. */
+    if (fqdn6_universe_decode(options, terminated,
+                              sizeof(terminated), &fqdn_universe) != 1) {
+        atf_tc_fail("terminated dhcp6.fqdn name was rejected");
+    }
+    option_state_dereference(&options, MDL);
+
+    if (!option_state_allocate(&options, MDL)) {
+        atf_tc_fail("can't allocate option state");
+    }
+
+    /* Empty name: must not read past the flags byte. */
+    if (fqdn6_universe_decode(options, empty,
+                              sizeof(empty), &fqdn_universe) != 1) {
+        atf_tc_fail("empty dhcp6.fqdn name was rejected");
+    }
+    option_state_dereference(&options, MDL);
+}
+
 /* This macro defines main() method that will call specified
    test cases. tp and simple_test_case names can be whatever you want
    as long as it is a valid variable identifier. */
@@ -275,6 +348,7 @@ ATF_TP_ADD_TCS(tp)
     ATF_TP_ADD_TC(tp, pretty_print_option);
     ATF_TP_ADD_TC(tp, parse_X);
     ATF_TP_ADD_TC(tp, add_option_ref_cnt);
+    ATF_TP_ADD_TC(tp, fqdn6_decode_bounds);
 
     return (atf_no_error());
 }
